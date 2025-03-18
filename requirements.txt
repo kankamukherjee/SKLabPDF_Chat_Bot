@@ -1,0 +1,9 @@
+streamlit
+langchain-community
+docarray
+langchain-groq
+sentence-transformers
+transformers
+torch
+einops
+langchain-huggingface
