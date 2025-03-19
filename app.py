@@ -13,9 +13,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from datetime import datetime, timedelta
 
-# Persistent data file for usage (shared across sessions)
-USAGE_FILE = "usage_data.json"
-LOCK = threading.Lock()  # Simple lock for file-based concurrency
+# Lock for concurrency (still useful for session state in multi-user scenarios)
+LOCK = threading.Lock()
 
 # Load and save user credentials (simplified for cloud)
 def load_users():
@@ -24,26 +23,15 @@ def load_users():
 def save_users(users):
     st.session_state["users"] = users
 
-# Load and save usage data (file-based for concurrency)
+# Load and save usage data (using session state)
 def load_usage_data():
-    default_data = {
-        "last_reset": datetime.now().isoformat(),
-        "request_count": 0,
-        "user_requests": {}
-    }
-    try:
-        with LOCK:
-            if os.path.exists(USAGE_FILE):
-                with open(USAGE_FILE, "r") as f:
-                    data = json.load(f)
-            else:
-                data = default_data
-                with open(USAGE_FILE, "w") as f:
-                    json.dump(data, f)
-    except Exception as e:
-        logger.error(f"Error loading usage data: {str(e)}")
-        data = default_data
-
+    if "usage_data" not in st.session_state:
+        st.session_state["usage_data"] = {
+            "last_reset": datetime.now(),
+            "request_count": 0,
+            "user_requests": {}
+        }
+    data = st.session_state["usage_data"]
     if isinstance(data["last_reset"], str):
         data["last_reset"] = datetime.fromisoformat(data["last_reset"])
     if datetime.now() - data["last_reset"] > timedelta(days=1):
@@ -53,13 +41,7 @@ def load_usage_data():
     return data
 
 def save_usage_data(data):
-    data["last_reset"] = data["last_reset"].isoformat()
-    try:
-        with LOCK:
-            with open(USAGE_FILE, "w") as f:
-                json.dump(data, f)
-    except Exception as e:
-        logger.error(f"Error saving usage data: {str(e)}")
+    st.session_state["usage_data"] = data
 
 # Session state initialization
 if "initialized" not in st.session_state:
@@ -70,16 +52,31 @@ if "initialized" not in st.session_state:
 # Set page config
 st.set_page_config(page_title="SKLAB PDF ChatBot", layout="wide", page_icon="📚", initial_sidebar_state="expanded")
 
-# Logging setup (minimal for cloud)
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info("Starting SKLAB PDF ChatBot")
 
 # Embeddings and model setup
-embeddings = HuggingFaceEmbeddings(model_name="nomic-ai/nomic-embed-text-v1", model_kwargs={"trust_remote_code": True})
-GROK_API_KEY = os.getenv("GROK_API_KEY", "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")
-qa_model = ChatGroq(api_key=GROK_API_KEY, model="llama-3.2-90b-vision-preview", temperature=0)
+@st.cache_resource
+def get_embeddings():
+    logger.info("Initializing embeddings")
+    emb = HuggingFaceEmbeddings(model_name="nomic-ai/nomic-embed-text-v1", model_kwargs={"trust_remote_code": True})
+    logger.info("Embeddings initialized successfully")
+    return emb
 
-# Prompt template
+@st.cache_resource
+def get_qa_model():
+    logger.info("Initializing ChatGroq model")
+    api_key = os.getenv("GROK_API_KEY", "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")
+    model = ChatGroq(api_key=api_key, model="llama-3.2-90b-vision-preview", temperature=0)
+    logger.info("ChatGroq model initialized successfully")
+    return model
+
+embeddings = get_embeddings()
+qa_model = get_qa_model()
+
+# Prompt template (unchanged)
 template = """[SYSTEM]
 You are a research paper QA assistant for SKLAB. Follow these rules STRICTLY:
 1. Answer ONLY using the provided context
@@ -109,7 +106,7 @@ You are a research paper QA assistant for SKLAB. Follow these rules STRICTLY:
 """
 prompt = PromptTemplate.from_template(template)
 
-# Define functions
+# Define functions (unchanged except logging)
 def extract_metadata(file_bytes):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(file_bytes)
@@ -188,7 +185,7 @@ def process_pdf(file_bytes):
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
-# Custom CSS
+# Custom CSS (unchanged)
 st.markdown("""
     <style>
     .header { font-size: 36px !important; color: #2E86C1 !important; padding: 20px 0; border-bottom: 3px solid #2E86C1; margin-bottom: 30px; }
@@ -200,9 +197,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # App title and info
+logger.info("Rendering UI")
 st.title("📑 SKLAB PDF ChatBot")
-st.markdown("**Welcome to SKLAB PDF ChatBot!** Upload research papers and ask detailed questions. Log in to manage usage limits, or use your own API key.")
+st.markdown("**Welcome to SKLAB PDF ChatBot!** Upload research papers and ask detailed questions powered by Grok, an advanced Large Language Model (LLM) from xAI. Log in to manage usage limits, or use your own API key.")
 
+# Rest of the code (login, sidebar, UI) remains unchanged
 # Login or API key prompt
 if st.session_state.user_id is None and st.session_state.user_api_key is None:
     st.subheader("Login or Use API Key")
