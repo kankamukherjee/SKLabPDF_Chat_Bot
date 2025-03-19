@@ -281,8 +281,9 @@ else:
     col1, col2 = st.columns(2)
     with col1:
         st.info("""
-        **Welcome to SKLAB PDF ChatBot**  
-        Analyze research papers with AI-powered insights.  
+        **Welcome to SKLAB PDF ChatBot!**  
+        Upload research papers and ask detailed questions powered by Grok, an advanced Large Language Model (LLM) from xAI.
+        Log in to manage usage limits, or use your own API key.  
         Features:  
         - Multi-document analysis  
         - Citation tracking  
