@@ -43,19 +43,8 @@ def load_usage_data():
 def save_usage_data(data):
     st.session_state["usage_data"] = data
 
-# API key management
-API_KEYS = [
-    "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",
-    "gsk_key2...",  # Replace with your 2nd key
-    "gsk_key3...",  # Replace with your 3rd key
-    "gsk_key4...",  # Replace with your 4th key
-    "gsk_key5...",  # Replace with your 5th key
-    "gsk_key6...",  # Replace with your 6th key
-    "gsk_key7...",  # Replace with your 7th key
-    "gsk_key8...",  # Replace with your 8th key
-    "gsk_key9...",  # Replace with your 9th key
-    "gsk_key10..."  # Replace with your 10th key
-]
+# Load API keys from Streamlit secrets
+API_KEYS = st.secrets["grok_api_keys"]["keys"]
 if "current_api_key_idx" not in st.session_state:
     st.session_state["current_api_key_idx"] = 0
 
@@ -328,7 +317,6 @@ else:
         """)
     with col2:
         usage_data = load_usage_data()
-        # Increased limits: 1000 shared (10 keys x 100), 50 per user
         remaining_shared = max(0, 1000 - usage_data["request_count"]) if not use_api_key else "Unlimited (API Key)"
         remaining_user = max(0, 50 - usage_data["user_requests"].get(user_id, 0)) if user_id else "N/A"
         st.metric("Shared Queries Left", remaining_shared)
