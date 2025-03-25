@@ -10,7 +10,7 @@ from langchain_community.vectorstores import DocArrayInMemorySearch
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_groq import ChatGroq
+from langchain_community.chat_models import ChatOllama
 from datetime import datetime, timedelta
 
 # Lock for concurrency
@@ -43,15 +43,9 @@ def load_usage_data():
 def save_usage_data(data):
     st.session_state["usage_data"] = data
 
-# Load API keys from Streamlit secrets
-API_KEYS = st.secrets["grok_api_keys"]["keys"]
-if "current_api_key_idx" not in st.session_state:
-    st.session_state["current_api_key_idx"] = 0
-
 # Session state initialization
 if "initialized" not in st.session_state:
     st.session_state.user_id = None
-    st.session_state.user_api_key = None
     st.session_state.initialized = True
 
 # Set page config
@@ -71,23 +65,18 @@ def get_embeddings():
     return emb
 
 @st.cache_resource
-def get_qa_model(api_key_idx=0):
-    logger.info(f"Initializing ChatGroq model with API key index {api_key_idx}")
+def get_qa_model():
+    logger.info("Initializing ChatOllama model with llama3:70b")
     try:
-        api_key = API_KEYS[api_key_idx]
-        model = ChatGroq(api_key=api_key, model="llama-3.2-90b-vision-preview", temperature=0)
-        logger.info("ChatGroq model initialized successfully")
+        model = ChatOllama(model="llama3:70b", base_url="http://172.16.41.41:11434", temperature=0)
+        logger.info("ChatOllama model initialized successfully")
         return model
     except Exception as e:
-        logger.error(f"API key {api_key_idx} failed: {str(e)}")
-        if api_key_idx + 1 < len(API_KEYS):
-            st.session_state["current_api_key_idx"] += 1
-            return get_qa_model(st.session_state["current_api_key_idx"])
-        else:
-            raise Exception("All API keys exhausted")
+        logger.error(f"Failed to initialize ChatOllama: {str(e)}")
+        raise Exception("Could not connect to Ollama server or initialize llama3:70b")
 
 embeddings = get_embeddings()
-qa_model = get_qa_model(st.session_state["current_api_key_idx"])
+qa_model = get_qa_model()
 
 # Prompt template
 template = """[SYSTEM]
@@ -215,23 +204,23 @@ st.markdown("""
 # App title and info
 logger.info("Rendering UI")
 st.title("📖 NIPGR Research Article Chatbot")
-st.markdown("**Welcome to NIPGR Research Article Chatbot!** Upload research papers and ask detailed questions powered by LLaMA-3.2-90B-Vision-Preview, an advanced Large Language Model from xAI.")
+st.markdown("**Welcome to NIPGR Research Article Chatbot!** Upload research papers and ask detailed questions powered by LLaMA-3 70B (via Ollama), running locally on this server.")
 st.markdown("*Developed by SKLAB at NIPGR under the leadership of Dr. Shailesh Kumar, Head of SKLAB.*")
 
 # Login or signup
-if st.session_state.user_id is None and st.session_state.user_api_key is None:
+if st.session_state.user_id is None:
     st.subheader("Login or Signup")
     users = load_users()
     tab1, tab2 = st.tabs(["Login", "Signup"])
     
     with tab1:
         with st.form(key='login_form'):
-            login_id = st.text_input("NIPGR Login ID (e.g., username@nipgr.ac.in)", key="login_id")
+            login_id = st.text_input("Username", key="login_id")
             password = st.text_input("Password", type="password", key="password")
             submit = st.form_submit_button(label="Login")
             if submit:
-                if not login_id.endswith("@nipgr.ac.in"):
-                    st.error("Login ID must end with @nipgr.ac.in")
+                if not login_id:
+                    st.error("Username cannot be empty")
                 elif login_id in users:
                     if users[login_id] == password:
                         st.session_state.user_id = login_id
@@ -249,12 +238,12 @@ if st.session_state.user_id is None and st.session_state.user_api_key is None:
 
     with tab2:
         with st.form(key='signup_form'):
-            signup_id = st.text_input("NIPGR Signup ID (e.g., username@nipgr.ac.in)", key="signup_id")
+            signup_id = st.text_input("Username", key="signup_id")
             signup_password = st.text_input("Create Password", type="password", key="signup_password")
             signup_submit = st.form_submit_button(label="Signup")
             if signup_submit:
-                if not signup_id.endswith("@nipgr.ac.in"):
-                    st.error("Signup ID must end with @nipgr.ac.in")
+                if not signup_id:
+                    st.error("Username cannot be empty")
                 elif signup_id in users:
                     st.error("User already exists. Please log in.")
                 else:
@@ -270,7 +259,6 @@ if st.session_state.user_id is None and st.session_state.user_api_key is None:
                     st.rerun()
 else:
     user_id = st.session_state.user_id
-    use_api_key = bool(st.session_state.user_api_key)
 
     if f"papers_{user_id}" not in st.session_state:
         st.session_state[f"papers_{user_id}"] = []
@@ -288,13 +276,8 @@ else:
                 if "usage_data" in st.session_state:
                     del st.session_state["usage_data"]
             st.session_state.user_id = None
-            st.session_state.user_api_key = None
             st.session_state.initialized = False
             st.rerun()
-        if use_api_key:
-            st.write("Using personal API key")
-        else:
-            st.text_input("Enter your Grok API key (optional):", type="password", key="api_key_sidebar", on_change=lambda: st.session_state.update(user_api_key=st.session_state.api_key_sidebar) or qa_model.__setattr__('api_key', st.session_state.api_key_sidebar) or st.rerun())
         st.markdown("""
         <div class='contact-section'>
             <h3>Contact SKLAB</h3>
@@ -308,25 +291,21 @@ else:
     with col1:
         st.info("""
         **Welcome to NIPGR Research Article Chatbot!**  
-        Upload research papers and ask detailed questions powered by LLaMA-3.2-90B-Vision-Preview, an advanced Large Language Model from xAI.  
+        Upload research papers and ask detailed questions powered by LLaMA-3 70B (via Ollama), running locally on this server.  
         Features:  
         - Multi-document analysis  
         - Citation tracking  
-        - Enhanced usage limits with multiple API keys  
+        - Local inference with Ollama  
         *Developed by SKLAB, headed by Dr. Shailesh Kumar, NIPGR.*
         """)
     with col2:
         usage_data = load_usage_data()
-        remaining_shared = max(0, 1000 - usage_data["request_count"]) if not use_api_key else "Unlimited (API Key)"
         remaining_user = max(0, 50 - usage_data["user_requests"].get(user_id, 0)) if user_id else "N/A"
-        st.metric("Shared Queries Left", remaining_shared)
         st.metric("Your Queries Left", remaining_user)
-        st.write(f"Debug: Shared Count = {usage_data['request_count']}, User Count = {usage_data['user_requests'].get(user_id, 0)}")
+        st.write(f"Debug: User Count = {usage_data['user_requests'].get(user_id, 0)}")
 
     if user_id and remaining_user == 0:
-        st.warning("Your personal limit (50/day) reached. Use your own API key or wait for reset.")
-    elif not use_api_key and remaining_shared == 0:
-        st.warning("Shared limit (1000/day) reached. Please use your own API key.")
+        st.warning("Your personal limit (50/day) reached. Wait for reset.")
     else:
         uploaded_files = st.file_uploader("Upload PDFs (Max 3)", type="pdf", accept_multiple_files=True)
         if uploaded_files:
@@ -409,9 +388,6 @@ else:
                             clean_response = fallback_response
 
                         usage_data = load_usage_data()
-                        if not use_api_key:
-                            usage_data["request_count"] += 1
-                            logger.info(f"Updated shared count: {usage_data['request_count']}")
                         if user_id:
                             usage_data["user_requests"][user_id] = usage_data["user_requests"].get(user_id, 0) + 1
                             logger.info(f"Updated user count for {user_id}: {usage_data['user_requests'][user_id]}")
@@ -422,12 +398,6 @@ else:
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error generating answer: {str(e)}")
-                        if "rate limit" in str(e).lower() and st.session_state["current_api_key_idx"] + 1 < len(API_KEYS):
-                            st.session_state["current_api_key_idx"] += 1
-                            qa_model = get_qa_model(st.session_state["current_api_key_idx"])
-                            st.warning("API rate limit hit. Switching to next key.")
-                            st.rerun()
-                        elif "rate limit" in str(e).lower():
-                            st.warning("All API keys exhausted. Try again later.")
+                        st.warning("Ensure the Ollama server is running and llama3:70b is loaded.")
         else:
             st.info("Please upload PDFs to start chatting.")
